@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="神经网络游乐场：在浏览器里搭神经网络、调参数、一键训练，实时观察分类边界与损失曲线，零门槛理解深度学习。">
+<title>神经网络游乐场 - 浏览器里的深度学习实验室</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>🧠</text></svg>">
+<style>
+  :root{
+    --blue:#4f7cff; --orange:#ff8a3d; --bg:#f4f6fb; --card:#ffffff;
+    --ink:#1f2430; --sub:#6b7280; --line:#e6e9f2; --radius:14px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--ink);}
+  header{padding:18px 26px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;}
+  header h1{font-size:22px;}
+  header h1 .logo{margin-right:6px;}
+  header p{color:var(--sub); font-size:13px;}
+  .app{display:grid; grid-template-columns:270px 1fr 320px; gap:16px; padding:0 26px 26px;}
+  .card{background:var(--card); border-radius:var(--radius); box-shadow:0 1px 4px rgba(20,30,60,.06); padding:16px;}
+  .card h3{font-size:13px; color:var(--sub); letter-spacing:2px; margin-bottom:12px;}
+  section{margin-bottom:20px;}
+  section:last-child{margin-bottom:0;}
+
+  /* 数据集缩略图 */
+  .ds-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:8px;}
+  .ds-btn{border:2px solid var(--line); border-radius:10px; padding:4px; cursor:pointer; background:#fff; transition:.15s;}
+  .ds-btn:hover{border-color:#c3cdfc;}
+  .ds-btn.active{border-color:var(--blue); box-shadow:0 0 0 3px rgba(79,124,255,.15);}
+  .ds-btn canvas{display:block; width:100%; height:auto; border-radius:6px;}
+  .ds-btn span{display:block; text-align:center; font-size:11px; color:var(--sub); margin-top:2px;}
+
+  .row{display:flex; align-items:center; gap:10px; margin-top:12px; font-size:13px;}
+  .row label{color:var(--sub); white-space:nowrap; min-width:56px;}
+  input[type=range]{flex:1; accent-color:var(--blue);}
+  .row .val{font-variant-numeric:tabular-nums; color:var(--ink); min-width:38px; text-align:right; font-size:12px;}
+  select{flex:1; padding:5px 8px; border:1px solid var(--line); border-radius:8px; font-size:13px; background:#fff;}
+
+  /* 特征 chips */
+  .chips{display:flex; flex-wrap:wrap; gap:8px;}
+  .chip{border:1.5px solid var(--line); border-radius:999px; padding:4px 12px; font-size:12px; cursor:pointer; background:#fff; color:var(--sub); transition:.15s; user-select:none;}
+  .chip:hover{border-color:#c3cdfc;}
+  .chip.active{background:var(--blue); border-color:var(--blue); color:#fff;}
+
+  /* 网络层控制 */
+  .layer-row{display:flex; align-items:center; gap:8px; margin-top:8px; font-size:13px;}
+  .layer-row .name{flex:1; color:var(--sub); font-size:12px;}
+  .pm{width:26px; height:26px; border-radius:8px; border:1px solid var(--line); background:#fff; cursor:pointer; font-size:15px; line-height:1; color:var(--ink);}
+  .pm:hover{border-color:var(--blue); color:var(--blue);}
+  .cnt{min-width:20px; text-align:center; font-variant-numeric:tabular-nums;}
+  #addLayer{width:100%; margin-top:10px; padding:7px; border:1.5px dashed var(--line); border-radius:10px; background:#fff; color:var(--sub); cursor:pointer; font-size:12px;}
+  #addLayer:hover{border-color:var(--blue); color:var(--blue);}
+
+  /* 训练按钮 */
+  .btns{display:flex; gap:8px;}
+  .btns button{flex:1; padding:9px 0; border-radius:10px; border:none; cursor:pointer; font-size:14px; transition:.15s;}
+  #playBtn{background:var(--blue); color:#fff; font-weight:600;}
+  #playBtn.pause{background:var(--orange);}
+  #stepBtn,#resetBtn{background:#eef1f8; color:var(--ink);}
+  #stepBtn:hover,#resetBtn:hover{background:#e2e7f5;}
+
+  /* 中间网络画布 */
+  .net-card{display:flex; flex-direction:column; min-height:520px;}
+  #netCanvas{flex:1; width:100%; border-radius:8px;}
+  .hint{margin-top:10px; font-size:12px; color:var(--sub); line-height:1.7;}
+  .hint code{background:#eef1f8; padding:1px 6px; border-radius:6px; font-size:11px;}
+
+  /* 右侧输出 */
+  #outCanvas{width:100%; border-radius:10px; border:1px solid var(--line); display:block;}
+  .legend{display:flex; justify-content:space-between; font-size:11px; color:var(--sub); margin-top:6px;}
+  .dot{display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px;}
+  .stats{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:14px; text-align:center;}
+  .stat b{display:block; font-size:18px; font-variant-numeric:tabular-nums;}
+  .stat span{font-size:11px; color:var(--sub);}
+  #lossCanvas{width:100%; height:110px; display:block; margin-top:8px;}
+  .loss-legend{font-size:11px; color:var(--sub); margin-top:4px;}
+  .sw{display:inline-block; width:14px; height:3px; border-radius:2px; vertical-align:middle; margin:0 4px 2px 10px;}
+
+  @media (max-width:1080px){
+    .app{grid-template-columns:1fr;}
+    .net-card{min-height:380px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="logo">🧠</span>神经网络游乐场</h1>
+  <p>在浏览器里搭网络、调参数、看训练 —— 像玩电路仿真一样学深度学习</p>
+  <a href="digits.html" style="margin-left:auto;color:var(--blue);font-size:13px;text-decoration:none;">手写数字识别 →</a>
+</header>
+
+<div class="app">
+  <!-- 左：控制面板 -->
+  <div class="card">
+    <section>
+      <h3>数据</h3>
+      <div class="ds-grid" id="dsGrid"></div>
+      <div class="row"><label>噪声</label><input type="range" id="noise" min="0" max="50" value="0"><span class="val" id="noiseVal">0</span></div>
+      <div class="row"><label>训练占比</label><input type="range" id="ratio" min="10" max="90" value="50"><span class="val" id="ratioVal">50%</span></div>
+    </section>
+
+    <section>
+      <h3>输入特征</h3>
+      <div class="chips" id="featChips"></div>
+    </section>
+
+    <section>
+      <h3>隐藏层</h3>
+      <div id="layersBox"></div>
+      <button id="addLayer">＋ 添加隐藏层</button>
+    </section>
+
+    <section>
+      <h3>训练</h3>
+      <div class="btns">
+        <button id="playBtn">▶ 训练</button>
+        <button id="stepBtn">单步</button>
+        <button id="resetBtn">重置</button>
+      </div>
+      <div class="row"><label>学习率</label>
+        <select id="lr">
+          <option value="0.001">0.001</option><option value="0.003">0.003</option>
+          <option value="0.01">0.01</option><option value="0.03" selected>0.03</option>
+          <option value="0.1">0.1</option><option value="0.3">0.3</option><option value="1">1</option>
+        </select>
+      </div>
+      <div class="row"><label>激活函数</label>
+        <select id="act">
+          <option value="tanh" selected>Tanh</option><option value="relu">ReLU</option><option value="sigmoid">Sigmoid</option>
+        </select>
+      </div>
+      <div class="row"><label>批大小</label>
+        <select id="batch">
+          <option value="1">1</option><option value="10" selected>10</option><option value="30">30</option>
+        </select>
+      </div>
+    </section>
+
+    <section>
+      <h3>模型</h3>
+      <div class="btns">
+        <button id="exportBtn" style="background:#eef1f8;color:var(--ink)">导出模型</button>
+        <button id="shareBtn" style="background:#eef1f8;color:var(--ink)">分享链接</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- 中：网络结构图 -->
+  <div class="card net-card">
+    <h3>网络结构（连线越粗越深 = 权重越大；蓝正橙负）</h3>
+    <canvas id="netCanvas"></canvas>
+    <p class="hint">💡 试试：<code>异或</code> 数据 + 2 层隐藏层 <code>(4, 2)</code> + <code>ReLU</code>；或 <code>螺旋</code> 数据 + 3 层 <code>(6, 5, 4)</code>。线性数据（高斯）不加隐藏层也能分。</p>
+  </div>
+
+  <!-- 右：输出 -->
+  <div class="card">
+    <h3>输出 · 分类边界</h3>
+    <canvas id="outCanvas" width="560" height="560"></canvas>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--blue)"></i>类别 A</span>
+      <span>背景色 = 网络预测</span>
+      <span><i class="dot" style="background:var(--orange)"></i>类别 B</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><b id="epoch">0</b><span>迭代轮次</span></div>
+      <div class="stat"><b id="trainLoss">-</b><span>训练损失</span></div>
+      <div class="stat"><b id="testLoss">-</b><span>测试损失</span></div>
+    </div>
+    <canvas id="lossCanvas"></canvas>
+    <div class="loss-legend">损失曲线<i class="sw" style="background:var(--blue)"></i>训练<i class="sw" style="background:var(--orange)"></i>测试</div>
+
+    <h3 style="margin-top:18px;">回放</h3>
+    <div class="btns" style="display:flex;gap:8px;">
+      <button id="replayBtn" style="flex:1;padding:8px 0;border-radius:10px;border:none;background:#eef1f8;color:var(--ink);cursor:pointer;font-size:13px;">▶ 回放训练过程</button>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <input type="range" id="replaySlider" min="0" max="0" value="0" disabled style="flex:1;">
+    </div>
+    <div id="replayInfo" style="font-size:11px;color:var(--sub);text-align:center;">训练中会自动录屏，每 20 轮存一帧</div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ================= 基础配置 ================= */
+const DOMAIN = 6;                       // 坐标范围 [-6, 6]
+const N_POINTS = 400;                   // 样本总数
+const GRID = 72;                        // 决策边界网格分辨率
+
+const FEATS = {                         // 可选输入特征（归一化到约 [-1,1]）
+  x1:  {label:'x₁',     f:(x,y)=>x/DOMAIN},
+  x2:  {label:'x₂',     f:(x,y)=>y/DOMAIN},
+  x1x2:{label:'x₁x₂',   f:(x,y)=>x*y/(DOMAIN*DOMAIN)},
+  x1sq:{label:'x₁²',    f:(x,y)=>x*x/(DOMAIN*DOMAIN)},
+  x2sq:{label:'x₂²',    f:(x,y)=>y*y/(DOMAIN*DOMAIN)},
+  sinx:{label:'sin x₁', f:(x,y)=>Math.sin(x)},
+  siny:{label:'sin x₂', f:(x,y)=>Math.sin(y)},
+};
+
+const ACTS = {
+  tanh:    {f:x=>Math.tanh(x),  d:t=>1-t*t},                    // d 接收激活值
+  relu:    {f:x=>x>0?x:0,       d:a=>a>0?1:0},
+  sigmoid: {f:x=>1/(1+Math.exp(-x)), d:a=>a*(1-a)},
+};
+const sig = x=>1/(1+Math.exp(-x));
+
+const state = {
+  dataset:'circle', noise:0, ratio:0.5,
+  features:['x1','x2'], hidden:[4,2], act:'tanh',
+  lr:0.03, batch:10,
+  playing:false, epoch:0,
+  train:[], test:[], W:[], b:[],
+  trainHist:[], testHist:[],
+};
+
+/* ================= 工具 ================= */
+const rnd = ()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};   // 标准正态
+
+/* ================= 数据集生成 ================= */
+const DATAS = {
+  circle:{name:'圆形', gen() {
+    const inner = Math.random()<0.5;
+    if (inner) return {x:rnd()*1.2, y:rnd()*1.2, y0:0};
+    const a=Math.random()*2*Math.PI, r=3.8+rnd()*0.6;
+    return {x:r*Math.cos(a), y:r*Math.sin(a), y0:1};
+  }},
+  xor:{name:'异或', gen() {
+    const cx=(Math.random()<0.5?-3:3), cy=(Math.random()<0.5?-3:3);
+    return {x:cx+rnd()*1.1, y:cy+rnd()*1.1, y0:(cx*cy>0)?0:1};
+  }},
+  gauss:{name:'高斯', gen() {
+    const c=Math.random()<0.5;
+    return c?{x:-2.4+rnd()*1.4, y:-2.4+rnd()*1.4, y0:0}
+            :{x: 2.4+rnd()*1.4, y: 2.4+rnd()*1.4, y0:1};
+  }},
+  spiral:{name:'螺旋', gen() {
+    const t=Math.random()*Math.PI*2.4, cls=Math.random()<0.5?0:1;
+    const ang=t+cls*Math.PI, r=t*0.72;
+    return {x:r*Math.cos(ang)+rnd()*0.35, y:r*Math.sin(ang)+rnd()*0.35, y0:cls};
+  }},
+};
+
+function genData(){
+  const pts=[];
+  for(let i=0;i<N_POINTS;i++){
+    const p=DATAS[state.dataset].gen();
+    const n=state.noise/50*1.5;
+    p.x+=rnd()*n; p.y+=rnd()*n;
+    pts.push(p);
+  }
+  // 打乱后按比例切分训练/测试
+  for(let i=pts.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pts[i],pts[j]]=[pts[j],pts[i]];}
+  const k=Math.round(pts.length*state.ratio);
+  state.train=pts.slice(0,k); state.test=pts.slice(k);
+  state.epoch=0; state.trainHist=[]; state.testHist=[];
+  clearFrames();
+}
+
+/* ================= 网络 ================= */
+function featVec(x,y){ return state.features.map(k=>FEATS[k].f(x,y)); }
+
+function resetNetwork(){
+  const sizes=[state.features.length, ...state.hidden, 1];
+  state.W=[]; state.b=[];
+  for(let l=0;l<sizes.length-1;l++){
+    const s=Math.sqrt(2/sizes[l]);
+    state.W.push(Array.from({length:sizes[l+1]},()=>Array.from({length:sizes[l]},()=>rnd()*s)));
+    state.b.push(new Array(sizes[l+1]).fill(0));
+  }
+  state.epoch=0; state.trainHist=[]; state.testHist=[];
+}
+
+function forward(inp){
+  const a=[inp], z=[null];
+  for(let l=0;l<state.W.length;l++){
+    const prev=a[l], zl=[], isOut=l===state.W.length-1;
+    for(let j=0;j<state.W[l].length;j++){
+      let s=state.b[l][j];
+      for(let i=0;i<prev.length;i++) s+=state.W[l][j][i]*prev[i];
+      zl.push(s);
+    }
+    z.push(zl);
+    a.push(isOut?zl.map(sig):zl.map(ACTS[state.act].f));
+  }
+  return {a,z};
+}
+
+function trainStep(){
+  const L=state.W.length, m=state.batch;
+  const gW=state.W.map(M=>M.map(r=>r.fill(0))), gb=state.b.map(v=>v.fill(0));
+  for(let s=0;s<m;s++){
+    const p=state.train[Math.floor(Math.random()*state.train.length)];
+    const {a}=forward(featVec(p.x,p.y));
+    // 输出层：sigmoid + 交叉熵 → delta = a - y
+    let delta=[a[L][0]-p.y0];
+    for(let l=L-1;l>=0;l--){
+      for(let j=0;j<delta.length;j++){
+        gb[l][j]+=delta[j];
+        for(let i=0;i<a[l].length;i++) gW[l][j][i]+=delta[j]*a[l][i];
+      }
+      if(l>0){ // 往上一层传
+        const dn=new Array(state.W[l-1].length).fill(0);
+        for(let i=0;i<dn.length;i++){
+          let s=0; for(let j=0;j<delta.length;j++) s+=state.W[l][j][i]*delta[j];
+          dn[i]=s*ACTS[state.act].d(a[l][i]);
+        }
+        delta=dn;
+      }
+    }
+  }
+  const lr=state.lr/m;
+  for(let l=0;l<L;l++)
+    for(let j=0;j<state.W[l].length;j++){
+      state.b[l][j]-=lr*gb[l][j];
+      for(let i=0;i<state.W[l][j].length;i++) state.W[l][j][i]-=lr*gW[l][j][i];
+    }
+  state.epoch++;
+}
+
+function lossOf(set){
+  if(!set.length) return 0;
+  let s=0;
+  for(const p of set){
+    const o=forward(featVec(p.x,p.y)).a.at(-1)[0];
+    const e=1e-9;
+    s+=-(p.y0*Math.log(o+e)+(1-p.y0)*Math.log(1-o+e));
+  }
+  return s/set.length;
+}
+
+/* ================= 颜色 ================= */
+const C_BLUE=[79,124,255], C_ORANGE=[255,138,61];
+function mixColor(p){ // p ∈ [0,1] → 橙→白→蓝
+  const t=Math.min(1,Math.abs(p-0.5)*2), c=p<0.5?C_ORANGE:C_BLUE;
+  return `rgb(${c.map(v=>Math.round(255+(v-255)*t)).join(',')})`;
+}
+
+/* ================= 输出画布 ================= */
+const outCv=document.getElementById('outCanvas'), octx=outCv.getContext('2d');
+const off=document.createElement('canvas'); off.width=GRID; off.height=GRID;
+const offCtx=off.getContext('2d');
+
+function drawOutput(){
+  const img=offCtx.createImageData(GRID,GRID);
+  for(let gy=0;gy<GRID;gy++)for(let gx=0;gx<GRID;gx++){
+    const x=(gx/(GRID-1))*2*DOMAIN-DOMAIN, y=DOMAIN-(gy/(GRID-1))*2*DOMAIN;
+    const p=forward(featVec(x,y)).a.at(-1)[0];
+    const t=Math.min(1,Math.abs(p-0.5)*2), c=p<0.5?C_ORANGE:C_BLUE;
+    const o=(gy*GRID+gx)*4;
+    img.data[o]=255+(c[0]-255)*t; img.data[o+1]=255+(c[1]-255)*t;
+    img.data[o+2]=255+(c[2]-255)*t; img.data[o+3]=255;
+  }
+  offCtx.putImageData(img,0,0);
+  octx.imageSmoothingEnabled=true;
+  octx.drawImage(off,0,0,outCv.width,outCv.height);
+  drawPoints(octx, outCv.width);
+}
+
+function drawPoints(ctx, size){
+  const S2=v=>(v+DOMAIN)/(2*DOMAIN)*size;
+  for(const [set,isTest] of [[state.train,false],[state.test,true]])
+    for(const p of set){
+      ctx.beginPath();
+      ctx.arc(S2(p.x),size-S2(p.y),isTest?4.5:3.5,0,7);
+      ctx.fillStyle=p.y0?`rgb(${C_ORANGE})`:`rgb(${C_BLUE})`;
+      ctx.fill();
+      if(isTest){ctx.lineWidth=1.5; ctx.strokeStyle='#fff'; ctx.stroke();}
+    }
+}
+
+/* ================= 网络结构画布 ================= */
+const netCv=document.getElementById('netCanvas'), nctx=netCv.getContext('2d');
+function nodePositions(){
+  const dpr=window.devicePixelRatio||1;
+  const w=netCv.clientWidth, h=netCv.clientHeight;
+  if(netCv.width!==w*dpr){netCv.width=w*dpr; netCv.height=h*dpr;}
+  nctx.setTransform(dpr,0,0,dpr,0,0);
+  const sizes=[state.features.length,...state.hidden,1];
+  const pos=[], gapX=w/(sizes.length+1);
+  for(let l=0;l<sizes.length;l++){
+    const gapY=h/(sizes[l]+1), col=[];
+    for(let j=0;j<sizes[l];j++) col.push({x:gapX*(l+1), y:gapY*(j+1)});
+    pos.push(col);
+  }
+  return {pos,w,h};
+}
+
+function drawNetwork(){
+  const pos=nodePositions();
+  nctx.clearRect(0,0,netCv.clientWidth,netCv.clientHeight);
+  // 连线
+  for(let l=0;l<state.W.length;l++)
+    for(let j=0;j<state.W[l].length;j++)
+      for(let i=0;i<state.W[l][j].length;i++){
+        const w=state.W[l][j][i];
+        nctx.beginPath();
+        nctx.moveTo(pos[l][i].x,pos[l][i].y);
+        nctx.lineTo(pos[l+1][j].x,pos[l+1][j].y);
+        nctx.lineWidth=1+Math.min(6,Math.abs(w)*2.5);
+        nctx.strokeStyle=w>0?`rgba(79,124,255,${Math.min(.85,Math.abs(w)/1.5+.06)})`
+                             :`rgba(255,138,61,${Math.min(.85,Math.abs(w)/1.5+.06)})`;
+        nctx.stroke();
+      }
+  // 节点
+  const L=pos.length;
+  pos.forEach((col,l)=>col.forEach((p,j)=>{
+    nctx.beginPath(); nctx.arc(p.x,p.y,15,0,7);
+    nctx.fillStyle='#fff'; nctx.fill();
+    nctx.lineWidth=2;
+    nctx.strokeStyle=l===0?'#94a3b8':(l===L-1?'#1f2430':'#4f7cff');
+    nctx.stroke();
+    if(l===0){ // 输入特征标签
+      nctx.fillStyle='#6b7280'; nctx.font='11px sans-serif'; nctx.textAlign='center';
+      nctx.fillText(FEATS[state.features[j]].label,p.x,p.y+3.5);
+    }
+    if(l===L-1){
+      nctx.fillStyle='#1f2430'; nctx.font='11px sans-serif'; nctx.textAlign='center';
+      nctx.fillText('输出',p.x,p.y+3.5);
+    }
+  }));
+}
+
+/* ================= 损失曲线 ================= */
+const lossCv=document.getElementById('lossCanvas'), lctx=lossCv.getContext('2d');
+function drawLoss(){
+  const dpr=window.devicePixelRatio||1;
+  const w=lossCv.clientWidth,h=110;
+  if(lossCv.width!==w*dpr){lossCv.width=w*dpr; lossCv.height=h*dpr;}
+  lctx.setTransform(dpr,0,0,dpr,0,0);
+  lctx.clearRect(0,0,w,h);
+  lctx.strokeStyle='#e6e9f2'; lctx.strokeRect(0.5,0.5,w-1,h-1);
+  const plot=(hist,color)=>{
+    if(hist.length<2)return;
+    const max=Math.max(...hist,0.1);
+    lctx.beginPath(); lctx.lineWidth=1.8; lctx.strokeStyle=color;
+    hist.forEach((v,i)=>{
+      const x=i/(Math.max(hist.length,200)-1)*(w-4)+2, y=h-4-(v/max)*(h-10);
+      i?lctx.lineTo(x,y):lctx.moveTo(x,y);
+    });
+    lctx.stroke();
+  };
+  plot(state.trainHist,`rgb(${C_BLUE})`);
+  plot(state.testHist,`rgb(${C_ORANGE})`);
+}
+
+/* ================= 录屏回放 ================= */
+const frames=[];          // {epoch, tl, te, img:ImageData}
+const MAX_FRAMES=300;
+let replaying=false, replayTimer=null;
+
+function recordFrame(tl,te){
+  frames.push({epoch:state.epoch, tl, te, img:offCtx.getImageData(0,0,GRID,GRID)});
+  if(frames.length>MAX_FRAMES) frames.shift();
+  const sl=document.getElementById('replaySlider');
+  sl.max=frames.length-1;
+  sl.disabled=frames.length<2;
+  document.getElementById('replayInfo').textContent=
+    `已录 ${frames.length} 帧（最新：第 ${state.epoch} 轮）`;
+}
+function showFrame(i){
+  const f=frames[i]; if(!f) return;
+  offCtx.putImageData(f.img,0,0);
+  octx.imageSmoothingEnabled=true;
+  octx.drawImage(off,0,0,outCv.width,outCv.height);
+  drawPoints(octx,outCv.width);
+  document.getElementById('epoch').textContent=f.epoch;
+  document.getElementById('trainLoss').textContent=f.tl.toFixed(3);
+  document.getElementById('testLoss').textContent=f.te.toFixed(3);
+  document.getElementById('replaySlider').value=i;
+  document.getElementById('replayInfo').textContent=
+    `回放：第 ${f.epoch} 轮（第 ${i+1}/${frames.length} 帧）`;
+}
+const replayBtn=document.getElementById('replayBtn');
+function stopReplay(){
+  replaying=false;
+  clearInterval(replayTimer); replayTimer=null;
+  replayBtn.textContent='▶ 回放训练过程';
+  document.getElementById('replayInfo').textContent=
+    frames.length?`已录 ${frames.length} 帧`:'训练中会自动录屏';
+}
+replayBtn.onclick=()=>{
+  if(replaying){ stopReplay(); return; }
+  if(frames.length<2) return;
+  // 暂停训练进入回放
+  if(state.playing) playBtn.onclick();
+  replaying=true;
+  replayBtn.textContent='⏹ 停止回放';
+  let i=0; showFrame(0);
+  replayTimer=setInterval(()=>{
+    i++;
+    if(i>=frames.length){ stopReplay(); return; }
+    showFrame(i);
+  },150);
+};
+document.getElementById('replaySlider').oninput=e=>{
+  if(state.playing) playBtn.onclick();
+  if(replayTimer){ clearInterval(replayTimer); replayTimer=null; }
+  replaying=true; replayBtn.textContent='⏹ 停止回放';
+  showFrame(+e.target.value);
+};
+function clearFrames(){
+  frames.length=0; stopReplay();
+  const sl=document.getElementById('replaySlider');
+  sl.max=0; sl.value=0; sl.disabled=true;
+  document.getElementById('replayInfo').textContent='训练中会自动录屏，每 20 轮存一帧';
+}
+
+/* ================= 主循环 ================= */
+let frame=0;
+function tick(){
+  if(state.playing && !replaying){ trainStep(); trainStep(); }
+  if(!replaying && frame%2===0) drawOutput();
+  drawNetwork();
+  if(frame%10===0 && !replaying){
+    const tl=lossOf(state.train), te=lossOf(state.test);
+    state.trainHist.push(tl); state.testHist.push(te);
+    if(state.trainHist.length>300){state.trainHist.shift(); state.testHist.shift();}
+    if(state.playing && state.epoch%20===0) recordFrame(tl,te);
+    document.getElementById('epoch').textContent=state.epoch;
+    document.getElementById('trainLoss').textContent=tl.toFixed(3);
+    document.getElementById('testLoss').textContent=te.toFixed(3);
+    drawLoss();
+  }
+  frame++;
+  requestAnimationFrame(tick);
+}
+
+/* ================= UI 绑定 ================= */
+function buildDatasetUI(){
+  const grid=document.getElementById('dsGrid'); grid.innerHTML='';
+  for(const key of Object.keys(DATAS)){
+    const btn=document.createElement('button');
+    btn.className='ds-btn'+(key===state.dataset?' active':'');
+    const cv=document.createElement('canvas'); cv.width=cv.height=56;
+    const c2=cv.getContext('2d');
+    for(let i=0;i<120;i++){
+      const p=DATAS[key].gen();
+      c2.beginPath(); c2.arc((p.x+DOMAIN)/12*56,56-(p.y+DOMAIN)/12*56,1.6,0,7);
+      c2.fillStyle=p.y0?`rgb(${C_ORANGE})`:`rgb(${C_BLUE})`; c2.fill();
+    }
+    const sp=document.createElement('span'); sp.textContent=DATAS[key].name;
+    btn.append(cv,sp);
+    btn.onclick=()=>{state.dataset=key; genData(); resetNetwork(); buildDatasetUI();};
+    grid.appendChild(btn);
+  }
+}
+
+function buildFeatUI(){
+  const box=document.getElementById('featChips'); box.innerHTML='';
+  for(const k of Object.keys(FEATS)){
+    const c=document.createElement('span');
+    c.className='chip'+(state.features.includes(k)?' active':'');
+    c.textContent=FEATS[k].label;
+    c.onclick=()=>{
+      const i=state.features.indexOf(k);
+      if(i>=0){ if(state.features.length>1) state.features.splice(i,1); }
+      else state.features.push(k);
+      resetNetwork(); buildFeatUI();
+    };
+    box.appendChild(c);
+  }
+}
+
+function buildLayerUI(){
+  const box=document.getElementById('layersBox'); box.innerHTML='';
+  state.hidden.forEach((n,idx)=>{
+    const row=document.createElement('div'); row.className='layer-row';
+    row.innerHTML=`<span class="name">第 ${idx+1} 层</span>`;
+    const minus=document.createElement('button'); minus.className='pm'; minus.textContent='−';
+    const cnt=document.createElement('span'); cnt.className='cnt'; cnt.textContent=n;
+    const plus=document.createElement('button'); plus.className='pm'; plus.textContent='+';
+    const del=document.createElement('button'); del.className='pm'; del.textContent='×'; del.title='删除本层';
+    minus.onclick=()=>{ if(n>1){state.hidden[idx]--; resetNetwork(); buildLayerUI();} };
+    plus.onclick =()=>{ if(n<8){state.hidden[idx]++; resetNetwork(); buildLayerUI();} };
+    del.onclick  =()=>{ state.hidden.splice(idx,1); resetNetwork(); buildLayerUI(); };
+    row.append(minus,cnt,plus,del);
+    box.appendChild(row);
+  });
+  document.getElementById('addLayer').style.display=state.hidden.length>=3?'none':'block';
+}
+
+document.getElementById('addLayer').onclick=()=>{
+  if(state.hidden.length<3){ state.hidden.push(3); resetNetwork(); buildLayerUI(); }
+};
+
+const playBtn=document.getElementById('playBtn');
+playBtn.onclick=()=>{
+  if(replaying) stopReplay();
+  state.playing=!state.playing;
+  playBtn.textContent=state.playing?'⏸ 暂停':'▶ 训练';
+  playBtn.classList.toggle('pause',state.playing);
+};
+document.getElementById('resetBtn').onclick=()=>{ resetNetwork(); clearFrames(); };
+document.getElementById('stepBtn').onclick=()=>{ trainStep(); };
+document.getElementById('lr').onchange=e=>state.lr=+e.target.value;
+document.getElementById('act').onchange=e=>{ state.act=e.target.value; resetNetwork(); };
+document.getElementById('batch').onchange=e=>state.batch=+e.target.value;
+document.getElementById('noise').oninput=e=>{
+  state.noise=+e.target.value;
+  document.getElementById('noiseVal').textContent=state.noise;
+  genData();
+};
+document.getElementById('ratio').oninput=e=>{
+  state.ratio=+e.target.value/100;
+  document.getElementById('ratioVal').textContent=e.target.value+'%';
+  genData();
+};
+
+/* ================= 导出 / 分享 ================= */
+function modelData(){
+  return {dataset:state.dataset, features:state.features, hidden:state.hidden,
+          act:state.act, lr:state.lr, batch:state.batch, W:state.W, b:state.b, epoch:state.epoch};
+}
+document.getElementById('exportBtn').onclick=()=>{
+  const blob=new Blob([JSON.stringify(modelData())],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`nn-${state.dataset}-${state.epoch}轮.json`;
+  a.click(); URL.revokeObjectURL(a.href);
+};
+document.getElementById('shareBtn').onclick=async()=>{
+  // 权重保留4位小数压缩体积，编码进 URL hash
+  const d=modelData();
+  d.W=d.W.map(M=>M.map(r=>r.map(v=>+v.toFixed(4))));
+  d.b=d.b.map(v=>v.map(x=>+x.toFixed(4)));
+  const url=location.origin+location.pathname+'#'+encodeURIComponent(JSON.stringify(d));
+  try{ await navigator.clipboard.writeText(url); alert('链接已复制！发给别人即可打开同款训练好的模型'); }
+  catch(e){ prompt('复制这个链接：', url); }
+};
+// 启动时若 URL 带模型数据则恢复
+function loadFromHash(){
+  if(location.hash.length<10) return false;
+  try{
+    const d=JSON.parse(decodeURIComponent(location.hash.slice(1)));
+    state.dataset=d.dataset; state.features=d.features; state.hidden=d.hidden;
+    state.act=d.act; state.lr=d.lr; state.batch=d.batch; state.epoch=d.epoch||0;
+    genData(); // 先生成数据再装权重
+    state.W=d.W; state.b=d.b;
+    // 同步 UI 控件
+    document.getElementById('lr').value=d.lr;
+    document.getElementById('act').value=d.act;
+    document.getElementById('batch').value=d.batch;
+    return true;
+  }catch(e){ return false; }
+}
+
+/* ================= 启动 ================= */
+if(!loadFromHash()){ genData(); resetNetwork(); }
+buildDatasetUI(); buildFeatUI(); buildLayerUI();
+tick();
+</script>
+</body>
+</html>

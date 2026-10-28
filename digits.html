@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="手写数字识别：在网页上画数字，AI 实时识别。内置模板匹配引擎，无需联网，直观展示图像预处理与 kNN 分类原理。">
+<title>手写数字识别 - 神经网络游乐场</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>✍️</text></svg>">
+<style>
+  :root{--blue:#4f7cff; --orange:#ff8a3d; --bg:#f4f6fb; --card:#fff; --ink:#1f2430; --sub:#6b7280; --line:#e6e9f2; --radius:14px;}
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--ink); min-height:100vh;}
+  header{padding:18px 26px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;}
+  header h1{font-size:22px;}
+  header p{color:var(--sub); font-size:13px;}
+  header a{color:var(--blue); font-size:13px; text-decoration:none; margin-left:auto;}
+  header a:hover{text-decoration:underline;}
+  .wrap{display:grid; grid-template-columns:340px 1fr; gap:16px; padding:0 26px 26px; max-width:1000px;}
+  .card{background:var(--card); border-radius:var(--radius); box-shadow:0 1px 4px rgba(20,30,60,.06); padding:16px;}
+  .card h3{font-size:13px; color:var(--sub); letter-spacing:2px; margin-bottom:12px;}
+  #pad{width:100%; aspect-ratio:1; border-radius:12px; border:2px dashed var(--line); cursor:crosshair; touch-action:none; display:block; background:#fff;}
+  .btns{display:flex; gap:8px; margin-top:12px;}
+  .btns button{flex:1; padding:10px 0; border-radius:10px; border:none; cursor:pointer; font-size:14px;}
+  #clearBtn{background:#eef1f8; color:var(--ink);}
+  #clearBtn:hover{background:#e2e7f5;}
+  .result-top{display:flex; align-items:center; gap:18px;}
+  #pred{font-size:72px; font-weight:700; color:var(--blue); line-height:1; min-width:80px; text-align:center;}
+  #predConf{font-size:12px; color:var(--sub); text-align:center; margin-top:4px;}
+  #grid7{image-rendering:pixelated; width:140px; height:140px; border:1px solid var(--line); border-radius:8px; background:#fff;}
+  .bars{margin-top:16px; display:flex; flex-direction:column; gap:6px;}
+  .bar-row{display:flex; align-items:center; gap:8px; font-size:12px;}
+  .bar-row .d{width:14px; text-align:right; font-weight:600;}
+  .bar-track{flex:1; height:14px; background:#eef1f8; border-radius:7px; overflow:hidden;}
+  .bar-fill{height:100%; background:var(--blue); border-radius:7px; transition:width .25s; width:0;}
+  .bar-row.top .d{color:var(--blue);}
+  .bar-row.top .bar-fill{background:var(--orange);}
+  .hint{margin-top:14px; font-size:12px; color:var(--sub); line-height:1.8;}
+  @media (max-width:760px){ .wrap{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>✍️ 手写数字识别</h1>
+  <p>画一个数字（0-9），松手即识别</p>
+  <a href="neural-playground.html">← 返回神经网络游乐场</a>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <h3>画板</h3>
+    <canvas id="pad" width="560" height="560"></canvas>
+    <div class="btns"><button id="clearBtn">清除重画</button></div>
+    <p class="hint">💡 原理：你的笔迹 → 裁剪 bounding box → 缩放到 7×7 网格（右侧小图）→ 与内置模板逐个比对（kNN 最近邻）→ 相似度最高的数字就是答案。写得越"标准"越准。</p>
+  </div>
+
+  <div class="card">
+    <h3>识别结果</h3>
+    <div class="result-top">
+      <div><div id="pred">?</div><div id="predConf">等待输入</div></div>
+      <canvas id="grid7" width="7" height="7"></canvas>
+    </div>
+    <div class="bars" id="bars"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ================= 7×7 数字模板（每数字 1 个原型） ================= */
+const T = {
+0:["0111110","1100011","1100011","1100011","1100011","1100011","0111110"],
+1:["0001100","0011100","0001100","0001100","0001100","0001100","0111110"],
+2:["0111110","1100011","0000011","0001110","0011000","0110000","1111111"],
+3:["0111110","1100011","0000011","0011110","0000011","1100011","0111110"],
+4:["0001110","0010110","0100110","1100110","1111111","0000110","0000110"],
+5:["1111111","1100000","1111110","0000011","0000011","1100011","0111110"],
+6:["0011110","0110000","1100000","1111110","1100011","1100011","0111110"],
+7:["1111111","0000011","0000110","0001100","0011000","0011000","0011000"],
+8:["0111110","1100011","1100011","0111110","1100011","1100011","0111110"],
+9:["0111110","1100011","1100011","0111111","0000011","0000110","0111100"],
+};
+const TMPL=[]; // 展开为 [ {d:数字, v:[49个0/1]}, ... ]
+for(const d of Object.keys(T)) TMPL.push({d:+d, v:T[d].join('').split('').map(Number)});
+
+/* ================= 画板 ================= */
+const pad=document.getElementById('pad'), pctx=pad.getContext('2d');
+pctx.lineCap='round'; pctx.lineJoin='round';
+let drawing=false, dirty=false;
+
+function pos(e){
+  const r=pad.getBoundingClientRect();
+  return {x:(e.clientX-r.left)/r.width*pad.width, y:(e.clientY-r.top)/r.height*pad.height};
+}
+pad.addEventListener('pointerdown',e=>{drawing=true; pad.setPointerCapture(e.pointerId);
+  const p=pos(e); pctx.beginPath(); pctx.moveTo(p.x,p.y);});
+pad.addEventListener('pointermove',e=>{ if(!drawing)return;
+  const p=pos(e); pctx.lineWidth=34; pctx.strokeStyle='#1f2430';
+  pctx.lineTo(p.x,p.y); pctx.stroke(); dirty=true;});
+pad.addEventListener('pointerup',()=>{drawing=false; if(dirty) recognize();});
+document.getElementById('clearBtn').onclick=()=>{
+  pctx.clearRect(0,0,pad.width,pad.height);
+  document.getElementById('pred').textContent='?';
+  document.getElementById('predConf').textContent='等待输入';
+  drawGrid(null); drawBars(null); dirty=false;
+};
+
+/* ================= 预处理：bounding box 裁剪 → 缩放到 7×7 ================= */
+function preprocess(){
+  const img=pctx.getImageData(0,0,pad.width,pad.height).data;
+  let minX=pad.width,minY=pad.height,maxX=0,maxY=0,found=false;
+  for(let y=0;y<pad.height;y++)for(let x=0;x<pad.width;x++){
+    if(img[(y*pad.width+x)*4+3]>40){ // 有笔迹
+      found=true;
+      if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y;
+    }
+  }
+  if(!found) return null;
+  // 留边并转成方形区域，避免拉伸变形
+  const w=maxX-minX+1, h=maxY-minY+1, side=Math.ceil(Math.max(w,h)*1.3);
+  const cx=(minX+maxX)/2, cy=(minY+maxY)/2;
+  const sx=Math.max(0,Math.round(cx-side/2)), sy=Math.max(0,Math.round(cy-side/2));
+  // 采样到 7×7（区域平均墨水浓度）
+  const v=new Array(49).fill(0);
+  for(let gy=0;gy<7;gy++)for(let gx=0;gx<7;gx++){
+    const x0=sx+Math.floor(gx*side/7), x1=sx+Math.floor((gx+1)*side/7);
+    const y0=sy+Math.floor(gy*side/7), y1=sy+Math.floor((gy+1)*side/7);
+    let sum=0,cnt=0;
+    for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){
+      if(x<0||y<0||x>=pad.width||y>=pad.height)continue;
+      sum+=img[(y*pad.width+x)*4+3]; cnt++;
+    }
+    v[gy*7+gx]=cnt?sum/cnt/255:0;
+  }
+  return v;
+}
+
+/* ================= kNN 匹配 ================= */
+function dist(a,b){let s=0;for(let i=0;i<49;i++){const d=a[i]-b[i];s+=d*d;}return Math.sqrt(s);}
+function recognize(){
+  const v=preprocess();
+  drawGrid(v);
+  if(!v){drawBars(null); return;}
+  const scored=TMPL.map(t=>({d:t.d, dist:dist(v,t.v)})).sort((a,b)=>a.dist-b.dist);
+  // 汇总成每个数字的得分（该数字最佳模板的相似度）
+  const per=[];
+  for(let d=0;d<=9;d++){
+    const best=scored.find(s=>s.d===d);
+    per.push({d, sim:1/(1+best.dist)});
+  }
+  const maxSim=Math.max(...per.map(p=>p.sim));
+  per.forEach(p=>p.score=p.sim/maxSim);
+  const top=per.slice().sort((a,b)=>b.score-a.score)[0];
+  document.getElementById('pred').textContent=top.d;
+  document.getElementById('predConf').textContent='置信度 '+Math.round(top.score*100)+'%';
+  drawBars(per);
+}
+
+/* ================= 可视化 ================= */
+const g7=document.getElementById('grid7'), g7ctx=g7.getContext('2d');
+function drawGrid(v){
+  g7ctx.clearRect(0,0,7,7);
+  if(!v)return;
+  for(let i=0;i<49;i++){
+    const g=Math.round(255-v[i]*255);
+    g7ctx.fillStyle=`rgb(${g},${g},${g})`;
+    g7ctx.fillRect(i%7,Math.floor(i/7),1,1);
+  }
+}
+const barsBox=document.getElementById('bars');
+const barEls=[];
+for(let d=0;d<=9;d++){
+  const row=document.createElement('div'); row.className='bar-row';
+  row.innerHTML=`<span class="d">${d}</span><div class="bar-track"><div class="bar-fill"></div></div>`;
+  barsBox.appendChild(row);
+  barEls.push(row);
+}
+function drawBars(per){
+  barEls.forEach((row,d)=>{
+    const p=per?per.find(x=>x.d===d):null;
+    const sc=p?p.score:0;
+    row.querySelector('.bar-fill').style.width=(sc*100)+'%';
+    row.classList.toggle('top', !!(per && sc>=0.999 && per.every(q=>q.d===d||q.score<sc+1e-9)));
+  });
+}
+</script>
+</body>
+</html>
